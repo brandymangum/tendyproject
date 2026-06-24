@@ -3,7 +3,1536 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="./support.js"></script>
+<script>
+// GENERATED from dc-runtime/src/*.ts — do not edit. Rebuild with `cd dc-runtime && bun run build`.
+"use strict";
+(() => {
+  var __defProp = Object.defineProperty;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
+  // src/react.ts
+  function getReact() {
+    const R = window.React;
+    if (!R) throw new Error("dc-runtime: window.React is not available yet");
+    return R;
+  }
+  function getReactDOM() {
+    const RD = window.ReactDOM;
+    if (!RD) throw new Error("dc-runtime: window.ReactDOM is not available yet");
+    return RD;
+  }
+  var h = ((...args) => getReact().createElement(
+    ...args
+  ));
+
+  // src/parse.ts
+  function parseDcDocument(doc) {
+    const dc = doc.querySelector("x-dc");
+    if (!dc) return null;
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template: dc.innerHTML,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDcText(src) {
+    const openMatch = /<x-dc(?:\s[^>]*)?>/.exec(src);
+    if (!openMatch) return null;
+    const close = src.lastIndexOf("</x-dc>");
+    if (close === -1 || close < openMatch.index) return null;
+    const template = src.slice(openMatch.index + openMatch[0].length, close);
+    const doc = new DOMParser().parseFromString(src, "text/html");
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDataProps(raw) {
+    if (!raw) return { props: null, preview: null };
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { props: null, preview: null };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { props: null, preview: null };
+    }
+    const obj = parsed;
+    const preview = obj.$preview && typeof obj.$preview === "object" ? obj.$preview : null;
+    const rest = {};
+    for (const k of Object.keys(obj)) {
+      if (k[0] !== "$") rest[k] = obj[k];
+    }
+    return { props: Object.keys(rest).length ? rest : null, preview };
+  }
+  function dcNameFromPath(pathname) {
+    let p = pathname || "";
+    try {
+      p = decodeURIComponent(p);
+    } catch {
+    }
+    const base = p.split("/").pop() || "Root";
+    return base.replace(/\.dc\.html$/, "").replace(/\.html?$/, "") || "Root";
+  }
+
+  // src/boot.ts
+  var BASE_CSS = `
+    .sc-placeholder{background:rgba(255,255,255,.3);border:1px solid rgba(0,0,0,.5);
+      border-radius:2px;box-sizing:border-box;overflow:hidden}
+    @keyframes sc-shine{0%{background-position:100% 50%}100%{background-position:0% 50%}}
+    html.sc-dc-streaming .sc-placeholder,
+    html.sc-dc-streaming .sc-interp.sc-missing{position:relative;
+      background:color-mix(in srgb,currentColor 5%,transparent);
+      border-color:transparent}
+    html.sc-dc-streaming .sc-placeholder::before,
+    html.sc-dc-streaming .sc-interp.sc-missing::before{content:'';
+      position:absolute;inset:0;pointer-events:none;
+      background:linear-gradient(90deg,rgba(217,119,87,0) 25%,rgba(247,225,211,.95) 37%,rgba(217,119,87,0) 63%);
+      background-size:400% 100%;animation:sc-shine 1.4s ease infinite}
+    html.sc-dc-streaming .sc-placeholder:nth-child(n+9 of .sc-placeholder)::before,
+    html.sc-dc-streaming .sc-interp.sc-missing:nth-child(n+9 of .sc-interp.sc-missing)::before{animation:none;
+      background:color-mix(in srgb,currentColor 8%,transparent)}
+    .sc-placeholder-error{padding:4px 8px;font:11px/1.4 ui-monospace,monospace;
+      color:rgba(0,0,0,.7);word-break:break-word}
+    .sc-interp.sc-missing{display:inline-block;width:2em;height:1em;overflow:hidden;
+      vertical-align:text-bottom;background:rgba(255,255,255,.3);border:1px solid rgba(0,0,0,.5);
+      border-radius:2px;box-sizing:border-box;color:transparent;
+      user-select:none}
+    .sc-interp.sc-unresolved{font-family:ui-monospace,monospace;font-size:.85em;
+      color:rgba(0,0,0,.5);background:rgba(0,0,0,.05);border-radius:3px;
+      padding:0 3px}
+    .sc-host.sc-has-error{position:relative}
+    .sc-logic-error{position:absolute;top:8px;left:8px;z-index:2147483647;max-width:60ch;
+      padding:6px 10px;background:#b00020;color:#fff;font:12px/1.4 ui-monospace,monospace;
+      border-radius:4px;white-space:pre-wrap;pointer-events:none}
+    /* Mirrors PRINT_BASELINE_CSS in apps/web deck-stage-export.ts \u2014 keep both
+       in sync until dc-runtime regains a build step. */
+    @media print {
+      @page { margin: 0.5cm; }
+      figure, table { break-inside: avoid; }
+      #dc-root, #dc-root > .sc-host { height: auto; }
+      *, *::before, *::after {
+        print-color-adjust: exact; -webkit-print-color-adjust: exact;
+        backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+        animation-delay: -99s !important; animation-duration: .001s !important;
+        animation-iteration-count: 1 !important; animation-fill-mode: both !important;
+        animation-play-state: running !important; transition-duration: 0s !important;
+      }
+    }
+  `;
+  var FULL_PAGE_CSS = "html,body{height:100%;margin:0}#dc-root,#dc-root>.sc-host{height:100%}";
+  function rootNameForDocument(doc, loc) {
+    let bootPath = loc.pathname || "";
+    if (!/\.dc\.html?$/i.test(safeDecode(bootPath))) {
+      try {
+        bootPath = new URL(doc.baseURI || "/").pathname;
+      } catch {
+      }
+    }
+    return dcNameFromPath(bootPath);
+  }
+  function safeDecode(s) {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  }
+  function boot(runtime, doc = document) {
+    const parsed = parseDcDocument(doc);
+    if (!parsed) return null;
+    const React = getReact();
+    const rootName = rootNameForDocument(doc, location);
+    runtime.markFetched(rootName);
+    runtime.adoptParsed(rootName, parsed);
+    fetch(location.href).then((res) => res.ok ? res.text() : "").then((t) => {
+      const raw = t ? parseDcText(t) : null;
+      if (raw?.template) runtime.updateHtml(rootName, raw.template);
+    }).catch(() => {
+    });
+    const dc = doc.querySelector("x-dc");
+    const hostEl = doc.createElement("div");
+    hostEl.id = "dc-root";
+    dc.replaceWith(hostEl);
+    if (!parsed.preview) {
+      const s = doc.createElement("style");
+      s.textContent = FULL_PAGE_CSS;
+      doc.head.appendChild(s);
+    }
+    const Root = runtime.getDC(rootName);
+    const entry = runtime.registry.get(rootName);
+    function StandaloneRoot() {
+      const [, setTick] = React.useState(0);
+      React.useEffect(() => {
+        const sub = () => setTick((n) => n + 1);
+        entry.subs.add(sub);
+        return () => {
+          entry.subs.delete(sub);
+        };
+      }, []);
+      return h(Root, entry.propOverrides || null);
+    }
+    const ReactDOM = getReactDOM();
+    if (ReactDOM.createRoot)
+      ReactDOM.createRoot(hostEl).render(h(StandaloneRoot));
+    else ReactDOM.render(h(StandaloneRoot), hostEl);
+    return rootName;
+  }
+
+  // src/expr.ts
+  var IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*/;
+  var NUMBER_RE = /^-?\d+(\.\d+)?$/;
+  function resolve(vals, src) {
+    const expr = String(src).trim();
+    if (!expr) return void 0;
+    if (expr[0] === "(" && expr[expr.length - 1] === ")" && parensWrapWhole(expr)) {
+      return resolve(vals, expr.slice(1, -1));
+    }
+    const eq = findTopLevelEquality(expr);
+    if (eq) {
+      const lv = resolve(vals, expr.slice(0, eq.index));
+      const rv = resolve(vals, expr.slice(eq.index + eq.op.length));
+      switch (eq.op) {
+        case "===":
+          return lv === rv;
+        case "!==":
+          return lv !== rv;
+        case "==":
+          return lv == rv;
+        default:
+          return lv != rv;
+      }
+    }
+    if (expr[0] === "!") return !resolve(vals, expr.slice(1));
+    if (expr === "true") return true;
+    if (expr === "false") return false;
+    if (expr === "null") return null;
+    if (expr === "undefined") return void 0;
+    if (NUMBER_RE.test(expr)) return Number(expr);
+    if (expr.length >= 2 && (expr[0] === '"' || expr[0] === "'") && expr[expr.length - 1] === expr[0]) {
+      return expr.slice(1, -1);
+    }
+    return resolvePath(vals, expr);
+  }
+  function parensWrapWhole(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length - 1; i++) {
+      if (expr[i] === "(") depth++;
+      else if (expr[i] === ")") {
+        depth--;
+        if (depth === 0) return false;
+      }
+    }
+    return true;
+  }
+  function findTopLevelEquality(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length; i++) {
+      const c = expr[i];
+      if (c === "[" || c === "(") depth++;
+      else if (c === "]" || c === ")") depth--;
+      else if (depth === 0 && (c === "=" || c === "!") && expr[i + 1] === "=") {
+        if (i > 0 && (expr[i - 1] === "=" || expr[i - 1] === "!")) continue;
+        if (!expr.slice(0, i).trim()) continue;
+        const op = expr[i + 2] === "=" ? c + "==" : c + "=";
+        return { index: i, op };
+      }
+    }
+    return null;
+  }
+  function resolvePath(vals, expr) {
+    const head = expr.match(IDENT_RE);
+    if (!head) return void 0;
+    let cur = vals == null ? void 0 : vals[head[0]];
+    let i = head[0].length;
+    while (i < expr.length) {
+      if (expr[i] === ".") {
+        const m = expr.slice(i + 1).match(IDENT_RE) || expr.slice(i + 1).match(/^\d+/);
+        if (!m) return void 0;
+        cur = cur == null ? void 0 : cur[m[0]];
+        i += 1 + m[0].length;
+      } else if (expr[i] === "[") {
+        let depth = 1;
+        let j = i + 1;
+        while (j < expr.length && depth > 0) {
+          if (expr[j] === "[") depth++;
+          else if (expr[j] === "]") {
+            depth--;
+            if (depth === 0) break;
+          }
+          j++;
+        }
+        if (depth !== 0) return void 0;
+        const key = resolve(vals, expr.slice(i + 1, j));
+        cur = cur == null ? void 0 : cur[key];
+        i = j + 1;
+      } else {
+        return void 0;
+      }
+    }
+    return cur;
+  }
+
+  // src/encode.ts
+  var CAMEL_ATTR = "sc-camel-";
+  var RAW_WRAP = {
+    select: "sc-raw-select",
+    table: "sc-raw-table",
+    tbody: "sc-raw-tbody",
+    thead: "sc-raw-thead",
+    tfoot: "sc-raw-tfoot",
+    tr: "sc-raw-tr",
+    td: "sc-raw-td",
+    th: "sc-raw-th",
+    caption: "sc-raw-caption"
+  };
+  var RAW_UNWRAP = Object.fromEntries(
+    Object.entries(RAW_WRAP).map(([k, v]) => [v, k])
+  );
+  var EVENT_MAP = {
+    onclick: "onClick",
+    onchange: "onChange",
+    oninput: "onInput",
+    onsubmit: "onSubmit",
+    onkeydown: "onKeyDown",
+    onkeyup: "onKeyUp",
+    onkeypress: "onKeyPress",
+    onmousedown: "onMouseDown",
+    onmouseup: "onMouseUp",
+    onmouseenter: "onMouseEnter",
+    onmouseleave: "onMouseLeave",
+    onfocus: "onFocus",
+    onblur: "onBlur",
+    ondoubleclick: "onDoubleClick",
+    oncontextmenu: "onContextMenu"
+  };
+  var ATTRS = `(?:[^>"']|"[^"]*"|'[^']*')*`;
+  var IMPORT_SELF_CLOSE_RE = new RegExp(
+    "<(x-import|dc-import)(" + ATTRS + ")/>",
+    "gi"
+  );
+  var CAMEL_ATTR_RE = /(\s)([a-z]+[A-Z][A-Za-z0-9]*)(\s*=)/g;
+  function encodeCase(html) {
+    html = html.replace(
+      IMPORT_SELF_CLOSE_RE,
+      (_, t, a) => "<" + t + a + "></" + t + ">"
+    );
+    html = html.replace(/<helmet(\s|>)/gi, "<sc-helmet$1");
+    html = html.replace(/<\/helmet\s*>/gi, "</sc-helmet>");
+    html = html.replace(
+      CAMEL_ATTR_RE,
+      (_, sp, name, eq) => sp + CAMEL_ATTR + name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()) + eq
+    );
+    for (const [real, alias] of Object.entries(RAW_WRAP)) {
+      html = html.replace(
+        new RegExp("(</?)" + real + "(?=[\\s>])", "gi"),
+        "$1" + alias
+      );
+    }
+    return html;
+  }
+  function kebabToCamel(s) {
+    return s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  }
+  function cssToObj(css) {
+    const o = {};
+    for (const decl of css.split(";")) {
+      const i = decl.indexOf(":");
+      if (i < 0) continue;
+      const prop = decl.slice(0, i).trim();
+      o[prop.startsWith("--") ? prop : kebabToCamel(prop)] = decl.slice(i + 1).trim();
+    }
+    return o;
+  }
+  function compileAttr(raw) {
+    const whole = raw.match(/^\s*\{\{([\s\S]+?)\}\}\s*$/);
+    if (whole) {
+      const path = whole[1];
+      return (vals) => resolve(vals, path);
+    }
+    if (raw.includes("{{")) {
+      const parts = raw.split(/\{\{([\s\S]+?)\}\}/g);
+      return (vals) => parts.map((s, i) => i & 1 ? resolve(vals, s) ?? "" : s).join("");
+    }
+    return () => raw;
+  }
+
+  // src/compile.ts
+  function collectProps(node, isComponent, host) {
+    const propGetters = [];
+    const pseudoClasses = [];
+    let hintSize = null;
+    for (const { name, value } of [...node.attributes]) {
+      if (name === "sc-name" || name === "data-dc-tpl") continue;
+      let key = name;
+      if (key.startsWith(CAMEL_ATTR))
+        key = kebabToCamel(key.slice(CAMEL_ATTR.length));
+      if (key === "hint-size") {
+        hintSize = value;
+        continue;
+      }
+      if (key.startsWith("style-")) {
+        pseudoClasses.push(host.pseudoClass(key.slice(6), value));
+        continue;
+      }
+      if (isComponent) {
+        if (key.includes("-")) key = kebabToCamel(key);
+      } else {
+        if (key === "class") key = "className";
+        else if (key === "for") key = "htmlFor";
+        else if (key.startsWith("on"))
+          key = EVENT_MAP[key] || "on" + key[2].toUpperCase() + key.slice(3);
+      }
+      propGetters.push([key, compileAttr(value)]);
+    }
+    return { propGetters, pseudoClasses, hintSize };
+  }
+  var HOST_STYLE_PROPS = /* @__PURE__ */ new Set([
+    "position",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "inset",
+    "width",
+    "height",
+    "z-index",
+    "transform"
+  ]);
+  function hostPositionStyle(style) {
+    const all = typeof style === "string" ? cssToObj(style) : style != null && typeof style === "object" ? style : null;
+    if (!all) return void 0;
+    const out = {};
+    for (const [k, v] of Object.entries(all)) {
+      const kebab = k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+      if (HOST_STYLE_PROPS.has(kebab)) out[k] = v;
+    }
+    return Object.keys(out).length ? out : void 0;
+  }
+  function compileTemplate(html, host) {
+    const tpl = document.createElement("template");
+    //! nosemgrep: direct-inner-html-assignment
+    tpl.innerHTML = encodeCase(html);
+    let tplN = 0;
+    (function stamp(node) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        node.setAttribute("data-dc-tpl", String(tplN++));
+      }
+      for (const c of node.childNodes) stamp(c);
+    })(tpl.content);
+    const builders = walkChildren(tpl.content, host);
+    const render = ((vals, ctx) => builders.map((b, i) => b(vals || {}, ctx, i)));
+    render.__annotated = tpl.innerHTML;
+    return render;
+  }
+  function walkChildren(node, host) {
+    return [...node.childNodes].map((c) => walk(c, host)).filter((b) => b != null);
+  }
+  function walk(node, host) {
+    if (node.nodeType === Node.TEXT_NODE) return walkText(node);
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    const el = node;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "sc-for") return walkFor(el, host);
+    if (tag === "sc-if") return walkIf(el, host);
+    if (tag === "x-import") return walkXImport(el, host);
+    if (tag === "sc-helmet") return host.helmet(el);
+    if (tag === "dc-import") return walkComponent(el, host);
+    return walkElement(el, host);
+  }
+  var warnedHoles = /* @__PURE__ */ new Set();
+  function warnUnresolved(ctx, what) {
+    const key = (ctx?.__name || "?") + "\0" + what;
+    if (warnedHoles.has(key)) return;
+    warnedHoles.add(key);
+    console.warn("[dc-runtime] " + (ctx?.__name || "template") + ": " + what);
+  }
+  function walkText(node) {
+    const txt = node.nodeValue ?? "";
+    if (!txt.includes("{{")) {
+      if (!txt.trim() && !txt.includes(" ")) return null;
+      return () => txt;
+    }
+    const parts = txt.split(/\{\{([\s\S]+?)\}\}/g);
+    return (vals, ctx, key) => h(
+      getReact().Fragment,
+      { key },
+      ...parts.map((p, i) => {
+        if (!(i & 1)) return p;
+        const v = resolve(vals, p);
+        if (v === void 0) {
+          if (!ctx?.__streamingNow) {
+            if (document.body?.hasAttribute("data-dc-editor-on")) {
+              return h(
+                "span",
+                { key: i, className: "sc-interp sc-unresolved" },
+                "{{ " + p.trim() + " }}"
+              );
+            }
+            warnUnresolved(
+              ctx,
+              "{{ " + p.trim() + " }} never resolved \u2014 rendered as empty"
+            );
+            return null;
+          }
+          return h(
+            "span",
+            { key: i, className: "sc-interp sc-missing" },
+            p.trim()
+          );
+        }
+        if (getReact().isValidElement(v) || Array.isArray(v)) {
+          return h(getReact().Fragment, { key: i }, v);
+        }
+        if (v === null || typeof v === "boolean") return null;
+        return h("span", { key: i, className: "sc-interp" }, String(v));
+      })
+    );
+  }
+  function walkFor(el, host) {
+    const listGet = compileAttr(el.getAttribute("list") || "");
+    const asName = el.getAttribute("as") || "item";
+    const hintN = parseInt(el.getAttribute("hint-placeholder-count") || "0", 10);
+    const kids = walkChildren(el, host);
+    const listSrc = el.getAttribute("list") || "";
+    return (vals, ctx, key) => {
+      let list = listGet(vals);
+      if (!Array.isArray(list)) {
+        if (!ctx?.__streamingNow) {
+          if (list !== void 0 && list !== null) {
+            warnUnresolved(
+              ctx,
+              'sc-for list="' + listSrc + '" is not an array (' + typeof list + ")"
+            );
+          }
+          list = [];
+        } else {
+          list = hintN > 0 ? Array(hintN).fill(void 0) : [];
+        }
+      }
+      return h(
+        getReact().Fragment,
+        { key },
+        list.map((item, i) => {
+          const sub = { ...vals, [asName]: item, $index: i };
+          return h(
+            getReact().Fragment,
+            { key: i },
+            kids.map((b, j) => b(sub, ctx, j))
+          );
+        })
+      );
+    };
+  }
+  function walkIf(el, host) {
+    const valGet = compileAttr(el.getAttribute("value") || "");
+    const hintRaw = el.getAttribute("hint-placeholder-val");
+    const hintGet = hintRaw != null ? compileAttr(hintRaw) : null;
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      let v = valGet(vals);
+      if (v === void 0 && hintGet && ctx?.__streamingNow) v = hintGet(vals);
+      return v ? h(
+        getReact().Fragment,
+        { key },
+        kids.map((b, j) => b(vals, ctx, j))
+      ) : null;
+    };
+  }
+  function walkComponent(el, host) {
+    const name = el.getAttribute("name") || el.getAttribute("component") || "";
+    el.removeAttribute("name");
+    el.removeAttribute("component");
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const { propGetters, hintSize } = collectProps(el, true, host);
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      const props = {
+        key,
+        __hintSize: hintSize,
+        __tplId: tplId,
+        __hostStyle: styleGet ? hostPositionStyle(styleGet(vals)) : void 0
+      };
+      for (const [k, g] of propGetters) props[k] = g(vals);
+      if (kids.length) props.children = kids.map((b, j) => b(vals, ctx, j));
+      return h(host.component(name), props);
+    };
+  }
+  function walkXImport(el, host) {
+    const globalNameGet = compileAttr(
+      el.getAttribute("component-from-global-scope") || ""
+    );
+    const exportNameGet = compileAttr(
+      el.getAttribute("component") || el.getAttribute("name") || ""
+    );
+    const url = el.getAttribute("from") || el.getAttribute("src") || el.getAttribute("import") || "";
+    const kind = /\.(jsx|tsx)(\?|#|$)/i.test(url) ? "jsx" : "js";
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const wrap = tplId != null || styleGet != null;
+    const { propGetters, hintSize } = collectProps(el, true, host);
+    const hasContent = el.children.length > 0 || !!(el.textContent || "").trim();
+    const kids = hasContent ? walkChildren(el, host) : [];
+    const urlBindable = url.includes("{{");
+    if (url && !urlBindable) host.loadExternal(kind, url);
+    const evalName = (g, vals) => {
+      const v = g(vals);
+      const s = v == null ? "" : String(v);
+      return s.includes("{{") ? "" : s;
+    };
+    return (vals, ctx, key) => {
+      const globalName = evalName(globalNameGet, vals);
+      const name = globalName || evalName(exportNameGet, vals);
+      const C = !name || urlBindable ? null : globalName ? host.resolveExternalGlobal(url, globalName) : host.resolveExternal(url, name);
+      const hostStyle = styleGet ? hostPositionStyle(styleGet(vals)) : void 0;
+      const wrapper = wrap ? {
+        key,
+        className: "sc-host-x",
+        "data-dc-tpl": tplId,
+        style: hostStyle || { display: "contents" }
+      } : null;
+      if (!C) {
+        const error = urlBindable ? "x-import `from` cannot contain {{ \u2026 }} \u2014 module URLs are resolved at parse time; use a literal URL" : host.resolveExternalError(url, name);
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      const props = wrapper ? {} : { key };
+      let unresolvedHole = false;
+      for (const [k, g] of propGetters) {
+        if (k === "component" || k === "componentFromGlobalScope" || k === "name" || k === "from" || k === "src" || k === "import") {
+          continue;
+        }
+        const v = g(vals);
+        if (v === void 0) unresolvedHole = true;
+        props[k] = v;
+      }
+      if (unresolvedHole && ctx?.__htmlStreamingNow) {
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error: null
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      if (kids.length) props.children = kids.map((b, j) => b(vals, ctx, j));
+      return wrapper ? h("div", wrapper, h(C, props)) : h(C, props);
+    };
+  }
+  function walkElement(el, host) {
+    const realTag = RAW_UNWRAP[el.localName] || el.localName;
+    const tplId = el.getAttribute("data-dc-tpl");
+    const { propGetters, pseudoClasses } = collectProps(el, false, host);
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      const props = { key, "data-dc-tpl": tplId };
+      for (const [k, g] of propGetters) {
+        let v = g(vals);
+        if (k === "style" && typeof v === "string") v = cssToObj(v);
+        if ((k === "value" || k === "checked") && v === void 0) {
+          v = k === "checked" ? false : "";
+        }
+        props[k] = v;
+      }
+      if (pseudoClasses.length) {
+        props.className = [props.className, ...pseudoClasses].filter(Boolean).join(" ");
+      }
+      return h(realTag, props, ...kids.map((b, j) => b(vals, ctx, j)));
+    };
+  }
+
+  // src/logic.ts
+  var StreamableLogic = class {
+    constructor(props) {
+      __publicField(this, "props");
+      __publicField(this, "state", {});
+      /** Back-pointer to the wrapper component, installed after construction. */
+      __publicField(this, "__host");
+      this.props = props || {};
+    }
+    setState(update, cb) {
+      this.__host && this.__host.__setLogicState(update, cb);
+    }
+    forceUpdate() {
+      this.__host && this.__host.forceUpdate();
+    }
+    componentDidMount() {
+    }
+    componentDidUpdate(_prevProps) {
+    }
+    componentWillUnmount() {
+    }
+    /** The flat object the template renders against (merged over props). */
+    renderVals() {
+      return {};
+    }
+  };
+  function evalDcLogic(src) {
+    //! nosemgrep: eval-and-function-constructor
+    const fn = new Function(
+      "DCLogic",
+      "StreamableLogic",
+      "React",
+      src + '\n;return (typeof Component!=="undefined"&&Component)||undefined;'
+    );
+    return fn(StreamableLogic, StreamableLogic, getReact());
+  }
+
+  // src/component.ts
+  function shallowEqual(a, b) {
+    if (!b) return false;
+    const ak = Object.keys(a).filter((k) => k !== "children");
+    const bk = Object.keys(b).filter((k) => k !== "children");
+    if (ak.length !== bk.length) return false;
+    for (const k of ak) if (a[k] !== b[k]) return false;
+    return true;
+  }
+  function Placeholder({
+    name,
+    hintSize,
+    streaming,
+    error
+  }) {
+    const [w, hgt] = (hintSize || "100%,60px").split(",");
+    return h(
+      "div",
+      {
+        className: "sc-placeholder" + (streaming ? " sc-streaming" : ""),
+        style: { width: w.trim(), height: hgt && hgt.trim() },
+        title: name
+      },
+      error ? h(
+        "div",
+        { className: "sc-placeholder-error" },
+        (name ? name + ": " : "") + error
+      ) : null
+    );
+  }
+  function hintToMin(hint) {
+    if (!hint) return void 0;
+    const [w, hgt] = hint.split(",");
+    return { minWidth: w.trim(), minHeight: hgt && hgt.trim() };
+  }
+  function createComponentFactory(registry, ensureFetched) {
+    const React = getReact();
+    const AncestorContext = React.createContext([]);
+    class StreamableComponent extends React.Component {
+      constructor(props) {
+        super(props);
+        __publicField(this, "__name");
+        __publicField(this, "__sub");
+        __publicField(this, "__needsDidMount", false);
+        /** Snapshot of the registry's streaming flags taken at render time —
+         *  builders read it off the RenderCtx (this) to pick placeholder vs
+         *  render-nothing for unresolved values. */
+        __publicField(this, "__streamingNow", false);
+        __publicField(this, "__htmlStreamingNow", false);
+        /** When a construct throws, remember the (class, registry.ver, props)
+         *  triple so render-time reconcile doesn't re-attempt it on every parent
+         *  re-render. A registry bump (new class, template, external module
+         *  resolving via bumpAll) changes `ver` and breaks the memo so an
+         *  env-dependent constructor can self-heal. */
+        __publicField(this, "__failedLogic", null);
+        __publicField(this, "__failedUserProps", null);
+        __publicField(this, "__failedVer", -1);
+        /** Per-instance constructor error — kept here (not on the registry entry)
+         *  so one instance's successful construct can't hide a sibling's failure,
+         *  and a construct can never wipe an eval error `updateJs` recorded on
+         *  `r.logicError`. */
+        __publicField(this, "__ctorError", null);
+        __publicField(this, "logic");
+        this.__name = props.__name;
+        this.state = { __v: 0, __err: null };
+        this.__sub = () => {
+          if (this.state.__err) this.setState({ __err: null });
+          this.forceUpdate();
+        };
+        this.__makeLogic(registry.get(this.__name).Logic, null);
+        ensureFetched(this.__name);
+      }
+      /** Error-boundary hook: a render crash anywhere in this DC's subtree
+       *  (its own template, an x-import'd component, a child DC without its
+       *  own deeper boundary) lands here instead of unmounting the page. */
+      static getDerivedStateFromError(e) {
+        return { __err: e instanceof Error && e.message ? e.message : String(e) };
+      }
+      componentDidCatch(e, info) {
+        console.error(
+          "[dc-runtime] render error in <" + this.__name + ">:",
+          e,
+          info?.componentStack || ""
+        );
+      }
+      /** Instantiate the logic class (or the no-op base) and adopt `prevState`
+       *  over its initial state — used both at mount and on hot-swap. */
+      __makeLogic(Logic, prevState) {
+        const L = Logic || StreamableLogic;
+        try {
+          this.logic = new L(this.__userProps());
+          this.__failedLogic = null;
+          this.__failedUserProps = null;
+          this.__ctorError = null;
+        } catch (e) {
+          console.error(e);
+          this.__failedLogic = Logic;
+          this.__failedUserProps = this.__userProps();
+          this.__failedVer = registry.get(this.__name).ver;
+          this.__ctorError = this.__name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+          this.logic = new StreamableLogic(
+            this.__userProps()
+          );
+        }
+        this.logic.__host = this;
+        if (prevState)
+          this.logic.state = { ...this.logic.state || {}, ...prevState };
+      }
+      /** The props the author's logic + template see — internal __-prefixed
+       *  wiring stripped. */
+      __userProps() {
+        const { __name, __hintSize, __tplId, __hostStyle, ...rest } = this.props;
+        return rest;
+      }
+      __setLogicState(update, cb) {
+        const prev = this.logic.state;
+        const patch = typeof update === "function" ? update(prev) : update;
+        this.logic.state = { ...prev, ...patch };
+        this.setState((s) => ({ __v: s.__v + 1 }), cb);
+      }
+      /** Swap the logic instance when the registry's Logic class changed
+       *  (streaming completion, hot reload). State carries over; didMount
+       *  re-fires after the swap commits so refs exist. */
+      __reconcileLogic() {
+        const r = registry.get(this.__name);
+        const Next = r.Logic;
+        const Cur = this.logic.constructor;
+        if (Next === Cur || !Next && Cur === StreamableLogic || Next === this.__failedLogic && r.ver === this.__failedVer && shallowEqual(this.__userProps(), this.__failedUserProps)) {
+          return;
+        }
+        if (!this.__needsDidMount) {
+          try {
+            this.logic.componentWillUnmount();
+          } catch (e) {
+            console.error(e);
+          }
+        }
+        this.__makeLogic(Next, this.logic.state);
+        this.__needsDidMount = true;
+      }
+      componentDidMount() {
+        registry.get(this.__name).subs.add(this.__sub);
+        try {
+          this.logic.componentDidMount();
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      componentDidUpdate(prevProps) {
+        this.logic.props = this.__userProps();
+        if (this.__needsDidMount) {
+          if (this.state.__err || !registry.get(this.__name).tpl) return;
+          this.__needsDidMount = false;
+          try {
+            this.logic.componentDidMount();
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          try {
+            this.logic.componentDidUpdate(prevProps);
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      componentWillUnmount() {
+        registry.get(this.__name).subs.delete(this.__sub);
+        if (!this.__needsDidMount) {
+          try {
+            this.logic.componentWillUnmount();
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      render() {
+        const r = registry.get(this.__name);
+        const cls = "sc-host" + (r.htmlStreaming ? " sc-streaming-html" : "") + (r.jsStreaming ? " sc-streaming-js" : "");
+        const hintStyle = r.htmlStreaming ? hintToMin(this.props.__hintSize) : void 0;
+        const hostStyle = this.props.__hostStyle || hintStyle ? { ...hintStyle || {}, ...this.props.__hostStyle || {} } : void 0;
+        const hostBase = {
+          className: cls,
+          style: hostStyle,
+          "data-sc-name": this.__name,
+          "data-dc-tpl": this.props.__tplId
+        };
+        const chain = Array.isArray(this.context) ? this.context : [];
+        if (chain.includes(this.__name)) {
+          const cycle = [
+            ...chain.slice(chain.indexOf(this.__name)),
+            this.__name
+          ].join(" \u2192 ");
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: "circular import: " + cycle
+            })
+          );
+        }
+        if (this.state.__err) {
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(
+              "div",
+              { className: "sc-logic-error" },
+              this.__name + ": " + this.state.__err
+            ),
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: this.state.__err
+            })
+          );
+        }
+        this.__reconcileLogic();
+        if (!r.tpl) {
+          return h(
+            "div",
+            hostBase,
+            h(Placeholder, { name: this.__name, hintSize: this.props.__hintSize })
+          );
+        }
+        const userProps = this.__userProps();
+        this.logic.props = userProps;
+        let vals = userProps;
+        let renderErr = r.logicError || this.__ctorError;
+        try {
+          vals = { ...userProps, ...this.logic.renderVals() || {} };
+        } catch (e) {
+          console.error(e);
+          renderErr = this.__name + ".renderVals(): " + (e instanceof Error && e.message ? e.message : String(e));
+        }
+        this.__streamingNow = !!(r.htmlStreaming || r.jsStreaming);
+        this.__htmlStreamingNow = !!r.htmlStreaming;
+        return h(
+          "div",
+          { ...hostBase, className: cls + (renderErr ? " sc-has-error" : "") },
+          renderErr && h("div", { className: "sc-logic-error" }, renderErr),
+          h(
+            AncestorContext.Provider,
+            { value: [...chain, this.__name] },
+            r.tpl(vals, this)
+          )
+        );
+      }
+    }
+    __publicField(StreamableComponent, "contextType", AncestorContext);
+    const named = /* @__PURE__ */ new Map();
+    function getDC(name) {
+      const hit = named.get(name);
+      if (hit) return hit;
+      function Dispatcher(p) {
+        const [, setTick] = React.useState(0);
+        React.useEffect(() => {
+          const sub = () => setTick((n) => n + 1);
+          registry.get(name).subs.add(sub);
+          return () => {
+            registry.get(name).subs.delete(sub);
+          };
+        }, []);
+        ensureFetched(name);
+        return h(StreamableComponent, { ...p, __name: name });
+      }
+      Dispatcher.displayName = name;
+      named.set(name, Dispatcher);
+      return Dispatcher;
+    }
+    return {
+      getDC,
+      StreamableComponent
+    };
+  }
+
+  // src/external.ts
+  var isCustomElementName = (n) => !n.includes(".") && n.includes("-");
+  function isRenderableType(g) {
+    if (typeof g === "function") return !isElementClass(g);
+    return typeof g === "object" && g !== null && typeof g.$$typeof === "symbol";
+  }
+  function resolveDottedPath(root, name) {
+    let cur = root;
+    for (const seg of name.split(".")) {
+      if (cur == null) return void 0;
+      cur = cur[seg];
+    }
+    return cur;
+  }
+  var BABEL_URL = "https://unpkg.com/@babel/standalone@7.26.4/babel.min.js";
+  var GLOBAL_POLL_INTERVAL_MS = 50;
+  var GLOBAL_POLL_TIMEOUT_MS = 3e4;
+  function createExternalModules(onResolved) {
+    const cache = /* @__PURE__ */ new Map();
+    let babelLoading = null;
+    const reportedMissing = /* @__PURE__ */ new Map();
+    const polling = /* @__PURE__ */ new Set();
+    function ensureBabel() {
+      if (window.Babel) return Promise.resolve();
+      if (babelLoading) return babelLoading;
+      babelLoading = new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = BABEL_URL;
+        s.crossOrigin = "anonymous";
+        s.onload = () => res();
+        s.onerror = rej;
+        document.head.appendChild(s);
+      });
+      return babelLoading;
+    }
+    function load(kind, url) {
+      if (cache.has(url)) return;
+      cache.set(url, null);
+      console.info("[dc-runtime] x-import: loading", url, "(" + kind + ")");
+      const ready = kind === "jsx" ? ensureBabel() : Promise.resolve();
+      ready.then(() => fetch(url)).then((r) => {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.text();
+      }).then((src) => {
+        const code = kind === "jsx" ? window.Babel.transform(src, {
+          filename: url,
+          presets: ["react", "typescript"]
+        }).code : src;
+        const module = { exports: {} };
+        const before = new Set(Object.keys(window));
+        //! nosemgrep: eval-and-function-constructor
+        new Function("React", "module", "exports", "require", code)(
+          getReact(),
+          module,
+          module.exports,
+          () => ({})
+        );
+        const globals = {};
+        for (const k of Object.keys(window)) {
+          if (!before.has(k) && typeof window[k] === "function") {
+            globals[k] = window[k];
+          }
+        }
+        cache.set(url, { mod: module.exports, globals });
+        console.info(
+          "[dc-runtime] x-import: loaded",
+          url,
+          "\u2014 exports:",
+          Object.keys(module.exports),
+          "window globals:",
+          Object.keys(globals)
+        );
+        onResolved();
+      }).catch((e) => {
+        cache.set(url, {
+          mod: {},
+          globals: {},
+          error: "failed to load: " + (e instanceof Error && e.message ? e.message : String(e))
+        });
+        console.error(
+          "[dc-runtime] x-import: FAILED to load",
+          url,
+          "(" + kind + ")",
+          e
+        );
+        onResolved();
+      });
+    }
+    function resolve2(url, name) {
+      const entry = cache.get(url);
+      if (!entry) return null;
+      const { mod, globals } = entry;
+      const C = mod && mod[name] || globals && globals[name] || typeof window !== "undefined" && window[name] || mod && mod.default;
+      if (typeof C === "function") return C;
+      const key = url + "\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(
+          key,
+          entry.error || 'no export named "' + name + '" (has: ' + Object.keys(mod).join(", ") + ")"
+        );
+        console.error(
+          "[dc-runtime] x-import: module",
+          url,
+          "loaded but has no component named",
+          JSON.stringify(name),
+          "\u2014 available exports:",
+          Object.keys(mod),
+          "window globals:",
+          Object.keys(globals),
+          ". The module must `module.exports = {" + name + "}` or set `window." + name + "`."
+        );
+      }
+      return null;
+    }
+    function waitForGlobal(name) {
+      if (polling.has(name)) return;
+      polling.add(name);
+      const started = Date.now();
+      const isCE = isCustomElementName(name);
+      const tick = () => {
+        const found = isCE ? customElements.get(name) : isRenderableType(resolveDottedPath(window, name));
+        if (found) {
+          polling.delete(name);
+          onResolved();
+          return;
+        }
+        if (Date.now() - started >= GLOBAL_POLL_TIMEOUT_MS) {
+          console.warn(
+            "[dc-runtime] x-import: global",
+            JSON.stringify(name),
+            "never appeared on window after " + GLOBAL_POLL_TIMEOUT_MS + "ms"
+          );
+          return;
+        }
+        setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+      };
+      setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+    }
+    function resolveGlobal(url, name) {
+      const isCE = isCustomElementName(name);
+      if (!url) {
+        if (isCE) {
+          if (customElements.get(name)) return name;
+          waitForGlobal(name);
+          return null;
+        }
+        const g2 = resolveDottedPath(window, name);
+        if (isRenderableType(g2)) return g2;
+        waitForGlobal(name);
+        return null;
+      }
+      const entry = cache.get(url);
+      if (!entry) return null;
+      if (isCE && customElements.get(name)) return name;
+      const g = entry.globals[name] ?? resolveDottedPath(window, name);
+      if (isRenderableType(g)) return g;
+      if (name.includes(".")) return null;
+      const key = url + "\0global\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(key, null);
+        if (isCE && !customElements.get(name)) {
+          console.warn(
+            "[dc-runtime] x-import:",
+            url,
+            "loaded but no custom element",
+            JSON.stringify(name),
+            "is registered and window." + name + " is not a function \u2014 rendering <" + name + "> as an unknown element."
+          );
+        }
+      }
+      return name;
+    }
+    function getError(url, name) {
+      const entry = cache.get(url);
+      if (entry?.error) return entry.error;
+      return reportedMissing.get(url + "\0" + name) || null;
+    }
+    return { load, resolve: resolve2, resolveGlobal, getError };
+  }
+  function isElementClass(g) {
+    try {
+      return typeof g === "function" && typeof HTMLElement !== "undefined" && g.prototype instanceof HTMLElement;
+    } catch {
+      return false;
+    }
+  }
+
+  // src/atomics.ts
+  var ATOMIC_CSS = (
+    // layout
+    ".fx{display:flex}.col{display:flex;flex-direction:column}.grid{display:grid}.ac{align-items:center}.jc{justify-content:center}.jb{justify-content:space-between}.f1{flex:1}.noshrink{flex-shrink:0}.wrap{flex-wrap:wrap}.fw5{font-weight:500}.fw6{font-weight:600}.fw7{font-weight:700}.fw8{font-weight:800}.fs11{font-size:11px}.fs12{font-size:12px}.fs13{font-size:13px}.fs14{font-size:14px}.fs15{font-size:15px}.fs16{font-size:16px}.fs20{font-size:20px}.fs22{font-size:22px}.upper{text-transform:uppercase}.tc{text-align:center}.nowrap{white-space:nowrap}.gap8{gap:8px}.gap10{gap:10px}.gap12{gap:12px}.gap16{gap:16px}.gap24{gap:24px}.m0{margin:0}.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mb8{margin-bottom:8px}.mb12{margin-bottom:12px}.mb16{margin-bottom:16px}.posrel{position:relative}.posabs{position:absolute}.round{border-radius:50%}.ohide{overflow:hidden}.bbox{box-sizing:border-box}.pointer{cursor:pointer}.w100{width:100%}.b0{border:none}"
+  );
+
+  // src/helmet.ts
+  function createHelmetManager(doc, isStreaming) {
+    const mounted = /* @__PURE__ */ new Set();
+    const live = /* @__PURE__ */ new Map();
+    function compile(node) {
+      const raw = [...node.children];
+      const helmetClosed = node.nextSibling != null || node.parentNode?.nextSibling != null;
+      if (node.hasAttribute("data-dc-atomics") && !mounted.has("__dc-atomics")) {
+        mounted.add("__dc-atomics");
+        const el = doc.createElement("style");
+        el.id = "__dc-atomics";
+        el.textContent = ATOMIC_CSS;
+        doc.head.appendChild(el);
+      }
+      return (_vals, ctx) => {
+        const name = ctx && ctx.__name || "";
+        const streaming = !!(name && isStreaming(name));
+        for (let i = 0; i < raw.length; i++) {
+          const child = raw[i];
+          const tag = child.tagName;
+          const mayBePartial = streaming && !helmetClosed && i === raw.length - 1;
+          if (tag === "SCRIPT") {
+            if (mayBePartial) continue;
+            const key = "SCRIPT|" + (child.getAttribute("src") || child.textContent || "");
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            const el = doc.createElement("script");
+            for (const { name: an, value } of [...child.attributes])
+              el.setAttribute(an, value);
+            if (child.textContent) el.textContent = child.textContent;
+            doc.head.appendChild(el);
+          } else if (tag === "LINK" || tag === "META") {
+            if (mayBePartial) continue;
+            const key = tag + "|" + (child.getAttribute("href") || child.getAttribute("src") || child.outerHTML);
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            doc.head.appendChild(child.cloneNode(true));
+          } else {
+            const key = name + "|" + i;
+            let el = live.get(key);
+            if (!el || el.tagName !== tag) {
+              if (el) el.remove();
+              el = doc.createElement(tag.toLowerCase());
+              live.set(key, el);
+              doc.head.appendChild(el);
+            }
+            for (const { name: an, value } of [...child.attributes]) {
+              if (el.getAttribute(an) !== value) el.setAttribute(an, value);
+            }
+            if (el.textContent !== child.textContent)
+              el.textContent = child.textContent;
+          }
+        }
+        return null;
+      };
+    }
+    return { compile };
+  }
+
+  // src/pseudo.ts
+  function createPseudoSheet(doc) {
+    let el = null;
+    const cache = /* @__PURE__ */ new Map();
+    let n = 0;
+    return (pseudo, css) => {
+      const k = pseudo + "|" + css;
+      const hit = cache.get(k);
+      if (hit) return hit;
+      if (!el) {
+        el = doc.createElement("style");
+        doc.head.appendChild(el);
+      }
+      const cls = "scp" + (n++).toString(36);
+      const sel = pseudo === "before" || pseudo === "after" ? "." + cls + "::" + pseudo : "." + cls + ":" + pseudo;
+      el.sheet.insertRule(sel + "{" + css + "}", el.sheet.cssRules.length);
+      cache.set(k, cls);
+      return cls;
+    };
+  }
+
+  // src/registry.ts
+  function createRegistry() {
+    const entries = /* @__PURE__ */ Object.create(null);
+    function get(name) {
+      return entries[name] || (entries[name] = {
+        html: "",
+        tpl: null,
+        Logic: null,
+        jsStreaming: false,
+        htmlStreaming: false,
+        ver: 0,
+        subs: /* @__PURE__ */ new Set(),
+        fetched: false
+      });
+    }
+    function bump(name) {
+      const r = get(name);
+      r.ver++;
+      for (const fn of r.subs) fn();
+    }
+    return {
+      entries,
+      get,
+      bump,
+      bumpAll() {
+        for (const n in entries) bump(n);
+      }
+    };
+  }
+
+  // src/runtime.ts
+  var COMPONENT_DIR = ".";
+  function createRuntime(doc = document) {
+    const registry = createRegistry();
+    const pseudoClass = createPseudoSheet(doc);
+    const helmet = createHelmetManager(
+      doc,
+      (name) => registry.get(name).htmlStreaming
+    );
+    const external = createExternalModules(() => registry.bumpAll());
+    const factory = createComponentFactory(registry, ensureFetched);
+    const host = {
+      component: (name) => factory.getDC(name),
+      placeholder: (props) => h(Placeholder, props),
+      helmet: (node) => helmet.compile(node),
+      loadExternal: (kind, url) => external.load(kind, url),
+      resolveExternal: (url, name) => external.resolve(url, name),
+      resolveExternalGlobal: (url, name) => external.resolveGlobal(url, name),
+      resolveExternalError: (url, name) => external.getError(url, name),
+      pseudoClass
+    };
+    function ensureFetched(name) {
+      const r = registry.get(name);
+      if (r.fetched) return;
+      r.fetched = true;
+      const url = COMPONENT_DIR + "/" + encodeURIComponent(name) + ".dc.html";
+      fetch(url).then((res) => {
+        if (!res.ok) {
+          console.error(
+            "[dc-runtime] sibling fetch for <" + name + "/> failed:",
+            url,
+            "returned",
+            res.status,
+            "\u2014 the reference renders as an empty placeholder."
+          );
+          return "";
+        }
+        return res.text();
+      }).then((t) => {
+        if (!t) return;
+        const parsed = parseDcText(t);
+        if (!parsed) {
+          console.error(
+            "[dc-runtime] sibling fetch for <" + name + "/>:",
+            url,
+            "has no <x-dc> block \u2014 not a Design Component."
+          );
+          return;
+        }
+        if (parsed.props) r.propsMeta = parsed.props;
+        if (parsed.preview) r.preview = parsed.preview;
+        if (parsed.template && !r.html) updateHtml(name, parsed.template);
+        if (parsed.js && !r.Logic) updateJs(name, parsed.js);
+      }).catch(
+        (e) => console.error(
+          "[dc-runtime] sibling fetch for <" + name + "/> threw:",
+          url,
+          e
+        )
+      );
+    }
+    function updateHtml(name, html) {
+      const r = registry.get(name);
+      r.html = html;
+      try {
+        r.tpl = compileTemplate(html, host);
+      } catch (e) {
+        console.error("[dc-runtime] template compile FAILED for", name, e);
+      }
+      registry.bump(name);
+    }
+    function updateJs(name, src) {
+      const r = registry.get(name);
+      const seq = r.jsSeq = (r.jsSeq || 0) + 1;
+      try {
+        const Cls = evalDcLogic(src);
+        if (r.jsSeq !== seq) return;
+        if (typeof Cls !== "function") {
+          r.logicError = name + ".dc.html: <script data-dc-script> must define `class Component extends DCLogic`";
+        } else {
+          r.logicError = null;
+          r.Logic = Cls;
+        }
+      } catch (e) {
+        if (r.jsSeq !== seq) return;
+        console.error(
+          "[dc-runtime] logic class eval FAILED for",
+          name,
+          "\u2014 the template renders with props only.",
+          e
+        );
+        r.logicError = name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+      }
+      registry.bump(name);
+    }
+    function setStreaming(name, kind, on) {
+      const r = registry.get(name);
+      if (kind === "html") r.htmlStreaming = !!on;
+      else r.jsStreaming = !!on;
+      let any = false;
+      for (const n in registry.entries) {
+        const e = registry.entries[n];
+        if (e && (e.htmlStreaming || e.jsStreaming)) {
+          any = true;
+          break;
+        }
+      }
+      doc.documentElement.classList.toggle("sc-dc-streaming", any);
+      registry.bump(name);
+    }
+    function dcUpdate(name, kind, content, streaming) {
+      if (streaming) registry.get(name).fetched = true;
+      if (kind === "html") {
+        setStreaming(name, "html", !!streaming);
+        updateHtml(name, content);
+      } else if (kind === "js") {
+        setStreaming(name, "js", !!streaming);
+        if (!streaming) updateJs(name, content);
+      } else if (kind === "props") {
+        const { props, preview } = parseDataProps(content);
+        const r = registry.get(name);
+        r.propsMeta = props ?? void 0;
+        r.preview = preview;
+        registry.bump(name);
+      }
+    }
+    function setProps(name, overrides) {
+      registry.get(name).propOverrides = overrides && typeof overrides === "object" ? { ...overrides } : null;
+      registry.bump(name);
+    }
+    function adoptParsed(name, parsed) {
+      if (!parsed) return;
+      const r = registry.get(name);
+      if (parsed.props) r.propsMeta = parsed.props;
+      if (parsed.preview) r.preview = parsed.preview;
+      if (parsed.template) updateHtml(name, parsed.template);
+      if (parsed.js) updateJs(name, parsed.js);
+    }
+    return {
+      registry,
+      getDC: factory.getDC,
+      updateHtml,
+      updateJs,
+      dcUpdate,
+      setProps,
+      adoptParsed,
+      markFetched: (name) => {
+        registry.get(name).fetched = true;
+      },
+      annotatedTemplate: (name) => {
+        const r = registry.get(name);
+        return r.tpl && r.tpl.__annotated || null;
+      },
+      templateSource: (name) => registry.get(name).html || null,
+      StreamableLogic
+    };
+  }
+
+  // src/index.ts
+  var REACT_URL = "https://unpkg.com/react@18.3.1/umd/react.production.min.js";
+  var REACT_SRI = "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z";
+  var REACT_DOM_URL = "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js";
+  var REACT_DOM_SRI = "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1";
+  function hideRawTemplate() {
+    const s = document.createElement("style");
+    s.textContent = "x-dc{display:none!important}";
+    document.head.appendChild(s);
+  }
+  function loadScript(src, integrity) {
+    return new Promise((resolve2, reject) => {
+      //! nosemgrep: create-script-element
+      const s = document.createElement("script");
+      s.src = src;
+      s.integrity = integrity;
+      s.crossOrigin = "anonymous";
+      s.async = false;
+      s.onload = () => resolve2();
+      s.onerror = () => reject(new Error(`failed to load ${src}`));
+      document.head.appendChild(s);
+    });
+  }
+  function loadReactUmd() {
+    const w = window;
+    if (w.React && w.ReactDOM) return Promise.resolve();
+    return Promise.all([
+      loadScript(REACT_URL, REACT_SRI),
+      loadScript(REACT_DOM_URL, REACT_DOM_SRI)
+    ]).then(() => void 0);
+  }
+  function init() {
+    const runtime = createRuntime(document);
+    let rootName = "Root";
+    const baseCss = document.createElement("style");
+    baseCss.textContent = BASE_CSS;
+    document.head.prepend(baseCss);
+    const notifyHost = () => {
+      if (window.parent === window) return;
+      const r = runtime.registry.entries[rootName];
+      try {
+        window.parent.postMessage(
+          {
+            type: "__dc_booted",
+            rootName,
+            propsMeta: r && r.propsMeta || null,
+            preview: r && r.preview || null
+          },
+          "*"
+        );
+      } catch {
+      }
+    };
+    const api = {
+      __dcUpdate: (name, kind, content, streaming) => {
+        runtime.dcUpdate(name, kind, content, streaming);
+        if (name === rootName && !streaming && kind === "props") notifyHost();
+      },
+      __dcSetProps: (name, overrides) => runtime.setProps(name, overrides),
+      /** Name of the component currently mounted as the page root — DC tools
+       *  push their template-stream here when targeting "the open page". */
+      __dcRootName: () => rootName,
+      /** Editor bridge — the encoded, `data-dc-tpl`-annotated template source.
+       *  The host editor parses this into its own template DOM so it can map a
+       *  rendered node (carrying the same `data-dc-tpl`) back to the source
+       *  node that emitted it. Returns the encoded form (`<sc-comp>`,
+       *  `sc-camel-*` attrs); the editor decodes on serialize. */
+      __dcAnnotatedTemplate: (name) => runtime.annotatedTemplate(name),
+      /** Editor bridge — the *original* (decoded) template source. */
+      __dcTemplateSource: (name) => runtime.templateSource(name),
+      __dcBoot: () => {
+        rootName = boot(runtime, document) ?? rootName;
+        notifyHost();
+      },
+      __dcRegistry: runtime.registry.entries,
+      getDC: (name) => runtime.getDC(name),
+      // `DCLogic` is the documented base class name; `StreamableLogic` is the
+      // implementation alias kept for any project that already references it.
+      DCLogic: runtime.StreamableLogic,
+      StreamableLogic: runtime.StreamableLogic
+    };
+    Object.assign(window, api);
+    if (document.readyState !== "loading") api.__dcBoot();
+    else document.addEventListener("DOMContentLoaded", () => api.__dcBoot());
+  }
+  hideRawTemplate();
+  loadReactUmd().then(init).catch((err) => {
+    console.error("[dc] failed to load React or boot:", err);
+    throw err;
+  });
+})();
+
+</script>
 </head>
 <body>
 <template id="__bundler_thumbnail">
@@ -15,7 +1544,246 @@
 </template>
 <x-dc>
 <helmet>
-<script src="cha-data.js"></script>
+<script>
+// Seed data for Client Health Agent — edit account/lead/cash data here.
+// Loaded as a classic <script> in the DC <helmet>, so these globals exist
+// before the component initializes its state.
+window.CHA_DATA = {
+    active:'today', expanded:null, newTask:'', tab:'all', toast:null, modal:null, modalBody:'',
+    esc:null,
+    signedIn:false, loginEmail:'', loginPw:'',
+    openAccount:null, drawerTab:'signals', markOk:false, logNote:'',
+    senderEmail:'', emailDraft:'', openLeadId:null, blockerDraft:'', solutionDraft:'',
+    leadBlockers:{
+      l1:[{blocker:'Comparing us against their incumbent vendor',solution:'Side-by-side ROI + faster fill times shorten their time-to-value'}],
+      l2:[{blocker:'Needs sign-off from the ops lead',solution:'Exec one-pager + a 14-day pilot to prove it before they commit'}],
+      l3:[{blocker:'Finance approval required before signing',solution:'Flexible monthly terms + a clear cost-per-fill breakdown'}],
+      l4:[{blocker:'Low urgency — need is not yet felt',solution:'Peer case study showing the real cost of unfilled roles'}],
+    },
+    addCust:false, custFromLead:null, custForm:{company:'',vertical:'',contact:'',email:'',phone:'',arr:'',segment:'Mid-Market',csm:'Brandy',renewal:'',term:'12-mo',startDate:'',billing:'Monthly',contractNum:'',docName:'',address:'',sponsor:'',sponsorEmail:''},
+    addLead:false, newLead:{company:'',type:'Healthcare',segment:'Mid-Market',region:'West',contact:'',title:'',email:'',phone:'',linkedin:'',source:'Inbound form',interest:'Warm',size:'',value:'',timeline:'30–60 days',note:''},
+    pipeView:'board', onbChecks:{},
+    implExpanded:null, msDraftName:'', msDraftDate:'', implNoteDraft:'',
+    implMilestones:{ l6:[{name:'Kickoff call',date:'Jun 24',done:true},{name:'Access provisioned',date:'Jun 28',done:false},{name:'First invoice sent',date:'Jul 1',done:false},{name:'Go-live',date:'Jul 15',done:false}] },
+    implNotes:{ l6:[{body:'COO wants weekly check-ins through launch. First 5 reqs already shared.',who:'Renata',when:'Jun 19'}] },
+    leadForm:{type:'Follow-up',note:'',outcome:'Awaiting reply',snooze:'6mo'},
+    leadSnooze:{l4:'Dec 2026'},
+    leadTouches:{
+      l1:[{type:'Initial outreach',date:'May 28',note:'Intro email after their inbound form. Asked for pricing on a 20-seat plan.',outcome:'Awaiting reply',by:'Theo'}],
+      l2:[{type:'Initial outreach',date:'May 30',note:'Referral intro from a mutual contact; sent a one-pager overview.',outcome:'Replied',by:'Brandy'},{type:'Follow-up',date:'Jun 2',note:'Sent the proposal — opened it 3 times since.',outcome:'Awaiting reply',by:'Brandy'}],
+      l3:[{type:'Call',date:'Jun 6',note:'Ran a full demo; reception was positive. Needs finance sign-off before moving.',outcome:'Awaiting reply',by:'Renata'}],
+      l4:[{type:'Initial outreach',date:'Jun 14',note:'Cold intro; got a single reply then went quiet.',outcome:'Not a good time',by:'Brandy',nextFollowUp:'Dec 2026'}],
+    },
+    leads:[
+      {id:'l1',company:'Brookline Pediatrics',stage:'contacted',reachedOut:'Jun 9',nextFollowUp:'Jun 20',attempt:2,maxAttempts:4,type:'Healthcare',segment:'Mid-Market',region:'West',contact:'Janet Pyle',title:'Ops Director',email:'janet@meridiancare.com',phone:'(415) 555-0182',linkedin:'linkedin.com/in/janetpyle',reachedOutBy:'Theo',lastTouch:'9 days ago',interest:'Warm',value:'60',timeline:'30–60 days',source:'Inbound form',sub:'No reply in 9 days · warm lead',
+        fit:[true,true,true,false,true,true,false,false],
+        notes:[{body:'Asked for pricing on a 20-seat plan. Wants to compare against their incumbent.',who:'Theo',when:'May 28'}],
+        tasks:[{id:'lt1',label:'Send 20-seat pricing breakdown',done:false},{id:'lt2',label:'Share home-health case study',done:true}]},
+      {id:'l2',company:'Lumen Events Co',stage:'engaged',reachedOut:'Jun 2',nextFollowUp:'—',attempt:3,maxAttempts:4,type:'Hospitality',segment:'SMB',region:'Midwest',contact:'Dele Akin',title:'Founder',email:'dele@foxgloveevents.com',phone:'(312) 555-0147',linkedin:'linkedin.com/in/deleakin',reachedOutBy:'Brandy',lastTouch:'7 days ago',interest:'Hot',value:'48',timeline:'< 30 days',source:'Referral',sub:'No reply in 7 days · opened email 3x',
+        fit:[true,true,true,true,false,true,false,true],
+        notes:[{body:'Opened the proposal 3 times — high intent. Budget confirmed verbally.',who:'Brandy',when:'Jun 2'}],
+        tasks:[{id:'lt1',label:'Nudge on the open proposal',done:false}]},
+      {id:'l3',company:'Granite Peak Gear',stage:'qualified',reachedOut:'Jun 6',nextFollowUp:'—',attempt:2,maxAttempts:4,type:'Retail',segment:'Mid-Market',region:'West',contact:'Sam Ortega',title:'VP People',email:'sam@trailheadco.com',phone:'(503) 555-0119',linkedin:'linkedin.com/in/samortega',reachedOutBy:'Renata',lastTouch:'4 days ago',interest:'Warm',value:'85',timeline:'60–90 days',source:'Demo request',sub:'Demo done · awaiting proposal',
+        fit:[false,true,true,true,false,false,true,false],
+        notes:[{body:'Demo went well; needs sign-off from finance. Timeline ~30 days.',who:'Renata',when:'Jun 6'}],
+        tasks:[{id:'lt1',label:'Send proposal v1',done:false},{id:'lt2',label:'Loop in their finance lead',done:false}]},
+      {id:'l4',company:'Tidewater Talent',stage:'prospect',reachedOut:'—',nextFollowUp:'Jun 22',attempt:0,maxAttempts:4,type:'Staffing',segment:'SMB',region:'Northeast',contact:'Nadia Hassan',title:'Owner',email:'nadia@birchco.com',phone:'(206) 555-0173',linkedin:'linkedin.com/in/nadiahassan',reachedOutBy:'Brandy',lastTouch:'2 days ago',interest:'Cold',value:'30',timeline:'90+ days',source:'Cold outreach',sub:'No reply since intro · cold',
+        fit:[false,false,true,false,true,false,true,false],
+        notes:[{body:'Single cold reply, then quiet. Low urgency for now.',who:'Brandy',when:'Jun 14'}],
+        tasks:[{id:'lt1',label:'Try one more value-led touch',done:false}]},
+      {id:'l5',company:'Maplewood Senior Care',stage:'proposal',reachedOut:'May 28',nextFollowUp:'—',attempt:3,maxAttempts:4,type:'Healthcare',segment:'Mid-Market',region:'West',contact:'Lena Park',title:'Administrator',email:'lena@cedarridge.com',phone:'(408) 555-0190',linkedin:'linkedin.com/in/lenapark',reachedOutBy:'Brandy',lastTouch:'3 days ago',interest:'Hot',value:'95',timeline:'< 30 days',source:'Referral',sub:'Proposal sent · reviewing',
+        fit:[true,true,true,true,true,true,true,false],
+        notes:[{body:'Proposal sent for 30 beds of coverage. Verbal yes pending board approval.',who:'Brandy',when:'Jun 16'}],
+        tasks:[{id:'lt1',label:'Confirm board approval date',done:false}]},
+      {id:'l6',company:'Ironside Logistics',stage:'signed',reachedOut:'May 12',nextFollowUp:'—',attempt:2,maxAttempts:4,type:'Staffing',segment:'Enterprise',region:'Midwest',contact:'Ray N.',title:'COO',email:'ray@pinnacle.com',phone:'(312) 555-0144',linkedin:'linkedin.com/in/raynguyen',reachedOutBy:'Renata',lastTouch:'1 day ago',interest:'Hot',value:'140',timeline:'signed',source:'Outbound',sub:'Signed · starting onboarding',
+        fit:[true,true,true,true,true,true,true,true],
+        notes:[{body:'Contract signed. Kickoff scheduled — move to onboarding checklist.',who:'Renata',when:'Jun 18'}],
+        tasks:[{id:'lt1',label:'Schedule onboarding kickoff',done:false}]},
+      {id:'l7',company:'Brightwater Health',stage:'signed',reachedOut:'May 20',nextFollowUp:'—',attempt:2,maxAttempts:4,type:'Healthcare',segment:'Mid-Market',region:'West',contact:'Dana Portis',title:'VP Ops',email:'dana@brightwater.com',phone:'(206) 555-0171',linkedin:'—',reachedOutBy:'Margo',lastTouch:'2 days ago',interest:'Hot',value:'95',timeline:'signed',source:'Referral',sub:'Signed · onboarding',
+        signedInfo:{csm:'Margo Quinn',startDate:'Jul 8, 2026',value:95,valueType:'one-time',roles:'8',term:'12-mo'},
+        fit:[true,true,true,true,true,true,true,false],
+        notes:[{body:'Signed for 8 beds of coverage. Kickoff set for early July.',who:'Margo',when:'Jun 19'}],
+        tasks:[{id:'lt1',label:'Send onboarding packet',done:false}]},
+      {id:'l8',company:'Cobalt Manufacturing',stage:'signed',reachedOut:'May 28',nextFollowUp:'—',attempt:3,maxAttempts:4,type:'Light industrial',segment:'Enterprise',region:'Midwest',contact:'Marcus To',title:'Plant Director',email:'marcus@cobalt.com',phone:'(414) 555-0188',linkedin:'—',reachedOutBy:'Theo',lastTouch:'4 days ago',interest:'Hot',value:'120',timeline:'signed',source:'Outbound',sub:'Signed · onboarding',
+        signedInfo:{csm:'Theo Banks',startDate:'Jul 15, 2026',value:120,valueType:'one-time',roles:'14',term:'12-mo'},
+        fit:[true,true,true,true,true,true,false,true],
+        notes:[{body:'Signed for 2nd-shift staffing. Coordinating start with their HR.',who:'Theo',when:'Jun 17'}],
+        tasks:[{id:'lt1',label:'Confirm shift schedule with HR',done:false}]},
+    ],
+    history:[
+      {id:'h1',text:'Approved & sent renewal touch to Summit Facilities',kind:'send',who:'You',time:'2d ago'},
+      {id:'h2',text:'Logged outreach for Harbor Point Clinics',kind:'outreach',who:'You',time:'2d ago'},
+      {id:'h3',text:'Snoozed Riverside Dental Group for 3 days',kind:'snooze',who:'You',time:'3d ago'},
+      {id:'h4',text:'Synced 12 new placements from Google Sheet',kind:'sync',who:'Agent',time:'3d ago'},
+    ],
+    items:[
+      {id:'a1',company:'Northwind Logistics',vertical:'Warehousing',initials:'NL',arr:148000,score:41,prev:59,status:'pending',contact:'Dana Whitfield',playKind:'re-engagement email',subject:'Checking in on your open Northwind reqs',
+        signals:['Zero placements filled in 24 days — your longest gap with them','Dana opened 3 reqs but stopped replying on Apr 2','Satisfaction pulse slipped from 8 to 4'],
+        body:"Hi Dana,\n\nA few of your open roles have been sitting for a couple weeks and I wanted to get ahead of it. We've got three pre-vetted candidates who fit the warehouse leads you posted — happy to send profiles today.\n\nWould 15 minutes this week help us get these filled?\n\nBest,\nBrandy Mangum"},
+      {id:'a2',company:'Cedar & Vine Hospitality',vertical:'Hospitality',initials:'CV',arr:96000,score:38,prev:51,status:'pending',contact:'Marco Ruiz',playKind:'payment nudge',subject:'Quick note on invoice #2471',
+        signals:['Invoice #2471 is 38 days overdue ($7,400)','Seasonal ramp usually starts by now — no reqs opened','Two roles posted in March, none filled'],
+        body:"Hi Marco,\n\nJust flagging invoice #2471 in case it slipped through — no rush, I just want to keep things clean on our end.\n\nSummer hiring usually kicks off around now too; I can have a shortlist of servers and line staff ready this week whenever you are.\n\nTalk soon,\nBrandy Mangum"},
+      {id:'a3',company:'Brightpath Home Health',vertical:'Healthcare',initials:'BH',arr:210000,score:52,prev:64,status:'pending',contact:'Priya Anand',playKind:'renewal touch',subject:'Quick Brightpath check-in before renewal',
+        signals:['Fill rate dropped to 62% over the last 30 days','Contract renews in 41 days — your largest account','Champion Priya moved roles last month'],
+        body:"Hi Priya,\n\nCongrats on the new role — I'd love to reconnect and make sure our coverage still lines up with where the team is headed. Your renewal is about six weeks out, so it's a good moment to review what's working.\n\nDo you have 20 minutes next week?\n\nWarmly,\nBrandy Mangum"},
+      {id:'a4',company:'Apex Precision Mfg',vertical:'Manufacturing',initials:'AP',arr:124000,score:58,prev:67,status:'pending',contact:'Glen Tomas',playKind:'coverage nudge',subject:'Covering this week’s open shifts at Apex',
+        signals:['Two shifts went unfilled this week','Timesheet approvals running 4+ days behind'],
+        body:"Hi Glen,\n\nWe had two shifts come up uncovered this week and I don't want that to become a pattern. I've lined up floaters who've worked your floor before and can step in immediately.\n\nWant me to schedule them for the rest of the week?\n\nThanks,\nBrandy Mangum"},
+      {id:'a5',company:'Riverside Dental Group',vertical:'Healthcare',initials:'RD',arr:44000,score:63,prev:70,status:'pending',contact:'Sara Lin',playKind:'check-in email',subject:'Anything we can help staff at Riverside?',
+        signals:['Usage down ~30% month over month','No new reqs in 18 days'],
+        body:"Hi Sara,\n\nThings have been quieter on the scheduling side and I wanted to check in — are you fully covered right now, or is there anything coming up we can get ahead of?\n\nAlways here,\nBrandy Mangum"},
+      {id:'a6',company:'Lakeside Retail Co',vertical:'Retail',initials:'LR',arr:72000,score:78,prev:74,status:'clear',contact:'Owen Pratt',signals:['Fill rate steady at 94%','Reqs up 12% this quarter']},
+      {id:'a7',company:'Summit Facilities',vertical:'Facilities',initials:'SF',arr:135000,score:71,prev:69,status:'clear',contact:'Renee Cho',signals:['Renewed early last month','Consistent weekly orders']},
+      {id:'a8',company:'Harbor Point Clinics',vertical:'Healthcare',initials:'HP',arr:190000,score:85,prev:83,status:'clear',contact:'Dr. Aimee Vance',signals:['Highest satisfaction score in portfolio','Expanding to a 3rd location']},
+    ],
+    tasks:[
+      {id:'t1',label:'Call Dana at Northwind about the dormant reqs',meta:'Due today',done:false},
+      {id:'t2',label:'Send Q3 business review deck to Brightpath',meta:'Tomorrow',done:false},
+      {id:'t3',label:'Confirm Cedar & Vine seasonal ramp dates',meta:'Done · 2d ago',done:true},
+      {id:'t4',label:'Start Brightpath renewal — 41 days out',meta:'This week',done:false},
+    ],
+    worklist:{
+      daily:[{id:'d1',label:'Renewal check-in — Brightpath renews in 41d',auto:true,done:false},{id:'d2',label:'Call Dana at Northwind about dormant reqs',auto:false,done:false},{id:'d3',label:'Reach out to Cedar & Vine — invoice 38d overdue',auto:true,done:false},{id:'d4',label:'Re-engage Riverside Dental — usage down 30%',auto:false,done:false}],
+      weekly:[{id:'w1',label:'Schedule QBR — Apex Precision (this week)',auto:true,done:false},{id:'w2',label:'Send proposal to Trailhead Outfitters',auto:false,done:false},{id:'w3',label:'Review at-risk accounts and re-rank',auto:true,done:false}],
+      monthly:[{id:'m1',label:'Pull health + ARR trends for the full book',auto:true,done:false},{id:'m2',label:'Sync with finance on expansion signals',auto:false,done:false}],
+      quarterly:[{id:'q1',label:'Schedule QBR — Harbor Point renews Sep',auto:true,done:false},{id:'q2',label:'Book concentration / key-person review',auto:true,done:false}],
+    },
+    teamNotes:[
+      {id:'tn1',body:'Confirmed the two core triggers; thresholds set at 30% MoM, validating against real data.',when:'Jun 18, 5:04 PM'},
+    ],
+    newNote:'',
+    worklistDrafts:{daily:'',weekly:'',monthly:'',quarterly:''},
+    calEvents:{12:{label:'Brightpath renews',acct:'a3',kind:'renewal'},24:{label:'Apex renews',acct:'a4',kind:'renewal'},9:{label:'Pricing follow-up',kind:'task'},16:{label:'QBR prep',kind:'task'}},
+    calSel:null,
+    cashStart:78400,
+    goalQ:280, goalY:1050,
+    cashTab:'log',
+    fcSel:null,
+    cashRange:'mtd',
+    openTxId:null, txNoteDraft:'',
+    txEdit:false, txEditForm:{}, txAudit:{},
+    txNotes:{ c1:[{body:'Paid in full — invoice #2480 cleared.',when:'Jun 18'}], c2:[{body:'Bi-weekly run for 14 staff. Hours verified against timesheets.',when:'Jun 17'}] },
+    txForm:{dir:'out',party:'',amount:'',category:'Payroll',catCustom:false,method:'ACH',check:'',memo:'',client:''},
+    cashTx:[
+      {id:'c1',date:'Jun 18',dir:'in',party:'Brightpath Home Health',category:'Client payment',method:'ACH',check:'',amount:17500,memo:'Invoice #2480'},
+      {id:'c2',date:'Jun 17',dir:'out',party:'Payroll run — 14 staff',category:'Payroll',method:'ACH',check:'',amount:28600,memo:'Bi-weekly'},
+      {id:'c3',date:'Jun 15',dir:'out',party:'Northbay Office LLC',category:'Rent',method:'Check',check:'1042',amount:4200,memo:'June rent'},
+      {id:'c4',date:'Jun 14',dir:'in',party:'Apex Precision Mfg',category:'Client payment',method:'ACH',check:'',amount:12400,memo:'Invoice #2476'},
+      {id:'c5',date:'Jun 12',dir:'out',party:'QuickBooks + software',category:'Software',method:'Card',check:'',amount:740,memo:'Monthly SaaS'},
+      {id:'c6',date:'Jun 11',dir:'out',party:'State tax deposit',category:'Taxes',method:'ACH',check:'',amount:6300,memo:'Q2 estimate'},
+      {id:'c7',date:'Jun 10',dir:'in',party:'Harbor Point Clinics',category:'Client payment',method:'ACH',check:'',amount:19000,memo:'Invoice #2470'},
+      {id:'c8',date:'Jun 7',dir:'out',party:'Payroll run — 14 staff',category:'Payroll',method:'ACH',check:'',amount:28100,memo:'Bi-weekly'},
+      {id:'c9',date:'Jun 6',dir:'out',party:'Indeed + LinkedIn ads',category:'Marketing',method:'Card',check:'',amount:1850,memo:'Job posts'},
+      {id:'c10',date:'Jun 4',dir:'in',party:'Lakeside Retail Co',category:'Client payment',method:'Check',check:'8821',amount:7200,memo:'Invoice #2465'},
+      {id:'c11',date:'Jun 3',dir:'out',party:'Liberty Mutual',category:'Insurance',method:'ACH',check:'',amount:2100,memo:'Workers comp'},
+      {id:'c12',date:'Jun 1',dir:'out',party:'Northbay Office LLC',category:'Rent',method:'Check',check:'1038',amount:4200,memo:'Carryover'},
+    ],
+    invoices:[
+      {id:'iv1',client:'Cedar & Vine Hospitality',num:'2471',amount:7400,issued:'May 11',due:'Jun 10',status:'Overdue',age:38},
+      {id:'iv2',client:'Summit Facilities',num:'2455',amount:5100,issued:'May 24',due:'Jun 23',status:'Overdue',age:21},
+      {id:'iv3',client:'Apex Precision Mfg',num:'2490',amount:3200,issued:'Jun 14',due:'Jun 28',status:'Outstanding',age:4},
+      {id:'iv4',client:'Riverside Dental Group',num:'2488',amount:2600,issued:'Jun 9',due:'Jul 9',status:'Outstanding',age:0},
+      {id:'iv5',client:'Brightpath Home Health',num:'2480',amount:17500,issued:'May 30',due:'Jun 14',status:'Paid',age:0},
+      {id:'iv6',client:'Harbor Point Clinics',num:'2470',amount:19000,issued:'May 26',due:'Jun 10',status:'Paid',age:0},
+    ],
+    payroll:[
+      {id:'p1',name:'Marco Delgado',role:'Warehouse lead',hours:80,rate:28,type:'Hourly',since:'Mar 2024',email:'marco@hartline.com'},
+      {id:'p2',name:'Tanya Reyes',role:'Floater',hours:64,rate:24,type:'Hourly',since:'Aug 2024',email:'tanya@hartline.com'},
+      {id:'p3',name:'Dev Patel-Wynn',role:'Recruiter',salary:2400,type:'Salary',since:'Jan 2023',email:'dev@hartline.com'},
+      {id:'p4',name:'Priya Shah',role:'Coordinator',salary:2100,type:'Salary',since:'Jun 2024',email:'priya@hartline.com'},
+      {id:'p5',name:'Devon Wright',role:'Driver',hours:72,rate:26,type:'Hourly',since:'Oct 2024',email:'devon@hartline.com'},
+    ],
+    bills:[
+      {id:'b1',vendor:'Northbay Office LLC',category:'Rent',amount:4200,dueDay:24,recurring:true,paid:false},
+      {id:'b2',vendor:'Liberty Mutual',category:'Insurance',amount:2100,dueDay:22,recurring:true,paid:false},
+      {id:'b3',vendor:'State tax deposit',category:'Taxes',amount:6300,dueDay:30,recurring:false,paid:false},
+      {id:'b4',vendor:'QuickBooks + tools',category:'Software',amount:740,dueDay:12,recurring:true,paid:true},
+      {id:'b5',vendor:'Fleet fuel card',category:'Vehicles',amount:1450,dueDay:26,recurring:true,paid:false},
+    ],
+    billForm:{vendor:'',category:'Rent',amount:'',dueDay:'',recurring:true}, addBill:false,
+    compliance:[
+      {id:'cp1',label:'Quarterly payroll taxes (941)',kind:'Tax',date:'Jun 30',daysOut:9,done:false},
+      {id:'cp2',label:'Workers’ comp insurance renewal',kind:'Insurance',date:'Jul 1',daysOut:10,done:false},
+      {id:'cp3',label:'Business license renewal',kind:'License',date:'Aug 5',daysOut:45,done:false},
+      {id:'cp4',label:'Q3 estimated taxes',kind:'Tax',date:'Sep 15',daysOut:86,done:false},
+    ],
+    team:[
+      {id:'t1',name:'Brandy Mangum',role:'Owner / CEO',dept:'Leadership',manager:'—',start:'Jan 2021',type:'Owner',comp:'Owner draw',monthlyCost:0,status:'active',email:'brandy@hartline.com',phone:'(206) 555-0100'},
+      {id:'t2',name:'Dev Patel-Wynn',role:'Senior Recruiter',dept:'Recruiting',manager:'Brandy Mangum',start:'Jan 2023',type:'Salary',comp:'$58K/yr',monthlyCost:4830,status:'active',email:'dev@hartline.com',phone:'(206) 555-0121'},
+      {id:'t3',name:'Renata Solis',role:'Client Success Manager',dept:'Client Success',manager:'Brandy Mangum',start:'Mar 2023',type:'Salary',comp:'$62K/yr',monthlyCost:5170,status:'active',email:'renata@hartline.com',phone:'(206) 555-0132'},
+      {id:'t4',name:'Margo Quinn',role:'Client Success Manager',dept:'Client Success',manager:'Brandy Mangum',start:'Sep 2023',type:'Salary',comp:'$60K/yr',monthlyCost:5000,status:'active',email:'margo@hartline.com',phone:'(206) 555-0143'},
+      {id:'t5',name:'Theo Banks',role:'Client Success Manager',dept:'Client Success',manager:'Brandy Mangum',start:'Feb 2024',type:'Salary',comp:'$59K/yr',monthlyCost:4920,status:'active',email:'theo@hartline.com',phone:'(206) 555-0154'},
+      {id:'t6',name:'Priya Shah',role:'Staffing Coordinator',dept:'Operations',manager:'Brandy Mangum',start:'Jun 2024',type:'Salary',comp:'$50K/yr',monthlyCost:4170,status:'active',email:'priya@hartline.com',phone:'(206) 555-0165'},
+      {id:'t7',name:'Marco Delgado',role:'Warehouse Lead',dept:'Field Ops',manager:'Priya Shah',start:'Mar 2024',type:'Hourly',comp:'$28/hr',monthlyCost:4480,status:'active',email:'marco@hartline.com',phone:'(206) 555-0176'},
+      {id:'t8',name:'Tanya Reyes',role:'Floater',dept:'Field Ops',manager:'Priya Shah',start:'Aug 2024',type:'Hourly',comp:'$24/hr',monthlyCost:3070,status:'active',email:'tanya@hartline.com',phone:'(206) 555-0187'},
+      {id:'t9',name:'Devon Wright',role:'Driver',dept:'Field Ops',manager:'Priya Shah',start:'Oct 2024',type:'Hourly',comp:'$26/hr',monthlyCost:3900,status:'active',email:'devon@hartline.com',phone:'(206) 555-0198'},
+      {id:'t10',name:'Maya Lin',role:'Recruiter',dept:'Recruiting',manager:'Dev Patel-Wynn',start:'Jun 23, 2026',type:'Salary',comp:'$52K/yr',monthlyCost:4330,status:'onboarding',email:'maya@hartline.com',phone:'(206) 555-0210',
+        onboarding:[{label:'Offer letter signed',done:true},{label:'I-9 & W-4 collected',done:true},{label:'Email + Slack provisioned',done:false},{label:'ATS / CRM access',done:false},{label:'Buddy assigned (James)',done:true},{label:'Week-1 plan shared',done:false}]},
+    ],
+    openRoles:[
+      {id:'r1',title:'Senior Recruiter',dept:'Recruiting',openedDays:38,target:30,status:'Interviewing',hiringManager:'Dev Patel-Wynn',range:'$55–65K',type:'Full-time',
+        jobPost:'Own full-cycle recruiting for healthcare & light-industrial clients. 3+ yrs agency staffing, ATS fluency, high-volume sourcing. Hybrid — Seattle.'},
+      {id:'r2',title:'Client Success Manager',dept:'Client Success',openedDays:12,target:30,status:'Screening',hiringManager:'Brandy Mangum',range:'$60–70K',type:'Full-time',
+        jobPost:'Carry a book of 25–30 staffing accounts. Drive renewals, health, and expansion. 2+ yrs CSM or account management in services. Remote-friendly.'},
+      {id:'r3',title:'Staffing Coordinator',dept:'Operations',openedDays:5,target:30,status:'Sourcing',hiringManager:'Priya Shah',range:'$45–52K',type:'Full-time',
+        jobPost:'Schedule shifts, manage floaters, keep coverage tight. Detail-obsessed, calm under pressure, great on the phone. On-site — Seattle warehouse.'},
+    ],
+    candidates:{
+      r1:[
+        {id:'c1',name:'Jordan Lee',stage:'offer',applied:'May 28',rating:5,daysWaiting:4,note:'Strong — 5 yrs agency, healthcare focus. Offer drafted, ready to send.',history:[{label:'Applied via inbound',time:'May 28 · 9:12 AM'},{label:'Phone screen — strong',time:'Jun 2 · 11:00 AM'},{label:'Moved to Interview',time:'Jun 6 · 2:30 PM'},{label:'Final interview — great',time:'Jun 9 · 10:00 AM'},{label:'Rated 5★',time:'Jun 9 · 10:45 AM'},{label:'Moved to Offer · offer drafted',time:'Jun 17 · 4:20 PM'}]},
+        {id:'c2',name:'Sam Rivera',stage:'interview',applied:'Jun 2',rating:4,daysWaiting:5,note:'Great phone screen. Final interview done — awaiting your thumbs up.',history:[{label:'Applied via referral',time:'Jun 2 · 1:05 PM'},{label:'Phone screen — strong',time:'Jun 6 · 3:15 PM'},{label:'Moved to Interview',time:'Jun 11 · 9:30 AM'},{label:'Rated 4★',time:'Jun 16 · 5:00 PM'}]},
+        {id:'c3',name:'Alex Kim',stage:'screen',applied:'Jun 10',rating:3,daysWaiting:1,note:'Solid resume, lighter on healthcare. Phone screen scheduled.',history:[{label:'Applied via LinkedIn',time:'Jun 10 · 8:40 AM'},{label:'Moved to Screen',time:'Jun 19 · 10:10 AM'},{label:'Rated 3★',time:'Jun 19 · 10:12 AM'}]},
+        {id:'c4',name:'Dana Cruz',stage:'applied',applied:'Jun 18',rating:0,daysWaiting:0,note:'New inbound — not yet reviewed.',history:[{label:'Applied via inbound',time:'Jun 18 · 7:22 PM'}]},
+        {id:'c5',name:'Pat Nolan',stage:'applied',applied:'Jun 19',rating:0,daysWaiting:0,note:'New inbound — not yet reviewed.',history:[{label:'Applied via inbound',time:'Jun 19 · 8:01 AM'}]},
+      ],
+      r2:[
+        {id:'c6',name:'Maria Gomez',stage:'interview',applied:'Jun 8',rating:4,daysWaiting:2,note:'Came from a competitor agency. Strong renewal track record.',history:[{label:'Applied via inbound',time:'Jun 8 · 12:30 PM'},{label:'Phone screen — strong',time:'Jun 11 · 2:00 PM'},{label:'Moved to Interview',time:'Jun 18 · 11:15 AM'},{label:'Rated 4★',time:'Jun 18 · 11:50 AM'}]},
+        {id:'c7',name:'Chris Park',stage:'screen',applied:'Jun 12',rating:3,daysWaiting:1,note:'SaaS CSM background, transferable. Screening this week.',history:[{label:'Applied via LinkedIn',time:'Jun 12 · 4:45 PM'},{label:'Moved to Screen',time:'Jun 19 · 9:00 AM'},{label:'Rated 3★',time:'Jun 19 · 9:05 AM'}]},
+        {id:'c8',name:'Tasha Bell',stage:'applied',applied:'Jun 17',rating:0,daysWaiting:0,note:'Referred by Margo.',history:[{label:'Applied via referral (Margo)',time:'Jun 17 · 3:20 PM'}]},
+      ],
+      r3:[
+        {id:'c9',name:'Leo Mendez',stage:'applied',applied:'Jun 18',rating:0,daysWaiting:0,note:'Dispatch background — promising.',history:[{label:'Applied via inbound',time:'Jun 18 · 10:05 AM'}]},
+        {id:'c10',name:'Robin Tate',stage:'applied',applied:'Jun 20',rating:0,daysWaiting:0,note:'New inbound.',history:[{label:'Applied via inbound',time:'Jun 20 · 1:40 PM'}]},
+      ],
+    },
+    hiringTab:'roster', openTeamId:null, expandedRole:null,
+    empForm:{name:'',role:'',type:'Hourly',rate:'',salary:'',email:''}, addEmp:false, openEmpId:null,
+    addTeam:false, teamForm:{name:'',role:'',dept:'Recruiting',manager:'Brandy Mangum',type:'Salary',comp:'',email:'',phone:'',start:''},
+    addRole:false, roleForm:{title:'',dept:'Recruiting',range:'',hiringManager:'Brandy Mangum',type:'Full-time',jobPost:''},
+    addCand:false, candRoleId:null, candForm:{name:'',note:''},
+    templateCats:['Collections','Renewals','Re-engagement','Prospect outreach'],
+    openTplId:null, tplEditId:null, tplEditForm:null,
+    templates:[
+      {id:'tplcol1',cat:'Collections',audience:'Customer',name:'Payment due — friendly',step:'1st',subject:'Quick note on invoice {{invoice}}',body:"Hi {{contact}},\n\nJust a friendly heads-up that invoice {{invoice}} for {{amount}} is due {{date}}. If it's already on the way, thank you — please disregard.\n\nAnything you need from us to get it processed? Happy to help.\n\nBest,\nBrandy"},
+      {id:'tplcol2',cat:'Collections',audience:'Customer',name:'Second reminder',step:'2nd',subject:'Following up — invoice {{invoice}}',body:"Hi {{contact}},\n\nCircling back on invoice {{invoice}} for {{amount}}, now a few days past due — I wanted to make sure it didn't slip through the cracks.\n\nCould you let me know the expected payment date? If there's a hold-up on your end, I'm glad to help sort it out.\n\nThanks,\nBrandy"},
+      {id:'tplcol3',cat:'Collections',audience:'Customer',name:'Final notice',step:'3rd',subject:'Action needed — invoice {{invoice}} overdue',body:"Hi {{contact}},\n\nInvoice {{invoice}} for {{amount}} is now significantly overdue and I haven't been able to reach you. To keep your account in good standing and avoid any pause in coverage, we'll need payment by {{date}}.\n\nIf there's an issue, please call me directly today and we'll work it out.\n\nRegards,\nBrandy"},
+      {id:'tplmonthly',cat:'Collections',audience:'Customer',name:'Monthly collection',step:'—',subject:'{{company}} — {{month}} invoice',body:"Hi {{contact}},\n\nYour {{month}} invoice ({{amount}}) is ready and due {{date}}. Same as always — just flag me if anything looks off.\n\nThanks for the continued partnership,\nBrandy"},
+      {id:'tplrenew',cat:'Renewals',audience:'Customer',name:'Renewal coming up',step:'—',subject:"Let's talk about your renewal",body:"Hi {{contact}},\n\nYour agreement with us is up for renewal on {{date}}, and I'd love 20 minutes to talk about what's working, what we can do better, and the year ahead.\n\nDo you have time this week or next? I'll send a couple of options.\n\nBest,\nBrandy"},
+      {id:'tplreengage',cat:'Re-engagement',audience:'Customer',name:"Haven't heard from you",step:'—',subject:'Checking in, {{contact}}',body:"Hi {{contact}},\n\nIt's been a little while since we connected and I want to make sure {{company}} is getting everything you need from us. Sometimes quiet means all-good, sometimes it means something slipped — either way, I'd rather ask.\n\nHow are things going on your end? A quick reply means a lot.\n\nWarmly,\nBrandy"},
+      {id:'tplout1',cat:'Prospect outreach',audience:'Prospect',name:'Intro / first touch',step:'1st',subject:'Helping {{company}} stay covered',body:"Hi {{contact}},\n\nI help teams like {{company}} stay fully staffed without the scramble — covering the roles that are hardest to fill and quickest to hurt when they sit open.\n\nWorth a short conversation to see if we're a fit? I'll keep it to 15 minutes.\n\nBest,\nBrandy"},
+      {id:'tplout2',cat:'Prospect outreach',audience:'Prospect',name:'Follow-up',step:'2nd',subject:'Following up, {{contact}}',body:"Hi {{contact}},\n\nWanted to float my note from last week back to the top of your inbox. No worries if the timing's off — I know things get busy.\n\nIf staffing coverage is on your mind at all this quarter, I'd love to compare notes. When's good?\n\nThanks,\nBrandy"},
+      {id:'tplout3',cat:'Prospect outreach',audience:'Prospect',name:'Last attempt',step:'3rd',subject:'Should I close the loop?',body:"Hi {{contact}},\n\nI've reached out a couple of times and haven't heard back, so I'll assume the timing isn't right and stop here for now.\n\nIf that changes — a tough role to fill, a coverage gap, a busy season coming — just reply and I'll jump on it.\n\nAll the best,\nBrandy"},
+    ],
+    feed:[
+      {id:'f1',text:'Flagged Northwind Logistics — health fell 18 pts in 9 days',time:'2h ago',kind:'alert'},
+      {id:'f2',text:'Drafted a re-engagement email for Cedar & Vine',time:'3h ago',kind:'draft'},
+      {id:'f3',text:'Matched 6 payments to invoices in QuickBooks',time:'5h ago',kind:'sync'},
+      {id:'f4',text:'Synced 12 new placements from your Google Sheet',time:'Yesterday',kind:'sync'},
+    ],
+};
+
+window.CHA_EXTRAS = {
+    a1:{csm:'Theo',segment:'Mid-Market',renewal:'Jan 2027',tickets:3,platform:'OEM',started:'Mar 2024',term:'12-mo · auto-renew'},
+    a2:{csm:'Brandy',segment:'Scaled',renewal:'Jul 2027',tickets:1,platform:'API',started:'Jun 2024',term:'Month-to-month'},
+    a3:{csm:'Brandy',segment:'Enterprise',renewal:'Jul 2026',tickets:5,platform:'OEM',started:'Aug 2023',term:'24-mo'},
+    a4:{csm:'Renata',segment:'Mid-Market',renewal:'Jan 2027',tickets:2,platform:'API',started:'Jan 2025',term:'12-mo'},
+    a5:{csm:'Brandy',segment:'Scaled',renewal:'Nov 2026',tickets:0,platform:'OEM',started:'Nov 2024',term:'12-mo · auto-renew'},
+    a6:{csm:'Brandy',segment:'Scaled',renewal:'Mar 2028',tickets:0,platform:'API',started:'Feb 2025',term:'12-mo'},
+    a7:{csm:'Margo',segment:'Mid-Market',renewal:'May 2027',tickets:1,platform:'OEM',started:'Oct 2023',term:'24-mo'},
+    a8:{csm:'Brandy',segment:'Enterprise',renewal:'May 2027',tickets:1,platform:'OEM',started:'Jul 2023',term:'24-mo · auto-renew'},
+};
+
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *{box-sizing:border-box;}
